@@ -39,14 +39,7 @@ async function bootstrap() {
 
   await bot.api.setWebhook(`${env.WEBHOOK_URL}/webhook/${env.WEBHOOK_SECRET}`, {
     secret_token: env.WEBHOOK_SECRET,
-    allowed_updates: [
-      'message',
-      'callback_query',
-      'chat_member',
-      'my_chat_member',
-      'inline_query',
-      'pre_checkout_query',
-    ],
+    allowed_updates: ['message', 'callback_query', 'chat_member', 'my_chat_member'],
     drop_pending_updates: false,
   });
   logger.info(`✅ Webhook: ${env.WEBHOOK_URL}/webhook/${env.WEBHOOK_SECRET}`);
