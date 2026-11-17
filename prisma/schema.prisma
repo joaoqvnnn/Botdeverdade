@@ -1,3 +1,7 @@
+// ═══════════════════════════════════════════════════════════════
+//  BELLAMY — Schema completo (painel membro + painel admin)
+// ═══════════════════════════════════════════════════════════════
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,661 +11,992 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================================
-// ADMINISTRAÇÃO E SEGURANÇA
-// ============================================================
+// ─────────────────────────────────────────────
+//  ENUMS
+// ─────────────────────────────────────────────
 
-model Admin {
-  id            String   @id @default(cuid())
-  nome          String
-  email         String   @unique
-  senhaHash     String
-  role          AdminRole @default(ADMIN)
-  ativo         Boolean  @default(true)
-  ultimoLogin   DateTime?
-  permissoes    Json?    // permissões finas quando role=OPERADOR
-  criadoEm      DateTime @default(now())
-  atualizadoEm  DateTime @updatedAt
-
-  logs          LogAtividade[]
-
-  @@index([email])
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  BANNED
+  BLOCKED_TEMP
 }
 
 enum AdminRole {
-  SUPERADMIN
+  SUPER_ADMIN
   ADMIN
-  GERENTE_PRODUTOS
-  GERENTE_FINANCEIRO
-  GERENTE_MEMBROS
-  GERENTE_CAMPANHAS
-  OPERADOR
+  PRODUCT_MANAGER
+  FINANCE_MANAGER
+  MEMBER_MANAGER
+  CAMPAIGN_MANAGER
+  OPERATOR
 }
 
-// ============================================================
-// MEMBROS / CLIENTES
-// ============================================================
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  OUT_OF_STOCK
+  ARCHIVED
+}
 
-model Membro {
-  id              String   @id @default(cuid())
-  telegramId      String   @unique
+enum DeliveryType {
+  CREDENTIALS     // email/senha automático
+  LINK            // link de ativação
+  CODE            // código/cupom
+  MANUAL          // entrega manual pelo admin
+  INSTRUCTIONS    // sem credenciais, só instruções
+}
+
+enum CredentialStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+  DELIVERED
+  UNAVAILABLE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  DELIVERED
+  CANCELLED
+  FAILED_DELIVERY
+  REFUNDED
+}
+
+enum PaymentMethod {
+  BALANCE
+  PIX
+  MIXED
+}
+
+enum PixChargeStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+  FAILED
+  IN_REVIEW
+}
+
+enum PixPurpose {
+  RECHARGE
+  COMPLETE_ORDER
+  COMPLETE_CART
+}
+
+enum TransactionType {
+  RECHARGE
+  BONUS
+  PURCHASE
+  REFUND
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+  POINTS_CONVERSION
+  GIFT_CREDIT
+}
+
+enum TransactionDirection {
+  CREDIT
+  DEBIT
+}
+
+enum PointType {
+  REFERRAL_VALID
+  REFERRAL_MANUAL
+  CONVERSION
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+}
+
+enum ReferralStatus {
+  PENDING
+  VALID
+  REJECTED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+  PENDING
+}
+
+enum GiftType {
+  BALANCE
+  POINTS
+}
+
+enum NotificationType {
+  PIX_NOT_PAID
+  PRODUCT_VIEWED
+  PURCHASE_CONFIRMED
+  RECHARGE_CONFIRMED
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_EXPIRED
+  STOCK_LOW
+  STOCK_OUT
+  PROMOTION
+  CAMPAIGN
+  SYSTEM
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+  RESOLVED   // evento foi resolvido antes do disparo
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum CampaignRecipientStatus {
+  PENDING
+  SENT
+  FAILED
+  BLOCKED_BOT
+}
+
+enum ButtonActionType {
+  SCREEN
+  PRODUCT
+  CATEGORY
+  URL
+  CALLBACK
+  DEEPLINK
+  SHARE
+  COPY
+  OPERATION
+}
+
+enum DeepLinkDestination {
+  CATALOG
+  CATEGORY
+  PRODUCT
+  OFFER
+  SUPPLY
+  SEARCH_SAVED
+  CART
+  RANKING_PRODUCTS
+  RECHARGE
+  ORDER
+  PURCHASES
+  PROFILE
+  REFERRAL
+  SUBSCRIPTIONS
+  SUPPORT
+  OFFERS
+  BEST_SELLERS
+  NEW_ARRIVALS
+  RESTOCK
+  SEARCH
+  RANKING_RECHARGES
+  RANKING_PURCHASES
+  RANKING_BALANCE
+  RANKING_REFERRALS
+  SUBSCRIPTION
+}
+
+enum ChannelPurpose {
+  OFFICIAL_CHANNEL
+  OFFICIAL_GROUP
+  SUPPLY_CHANNEL
+  PURCHASES_CHANNEL
+  SUPPORT_CHAT
+}
+
+enum AdminLogAction {
+  LOGIN
+  LOGOUT
+  PRODUCT_CREATE
+  PRODUCT_UPDATE
+  PRODUCT_DELETE
+  CATEGORY_CREATE
+  CATEGORY_UPDATE
+  CATEGORY_DELETE
+  STOCK_ADD
+  STOCK_REMOVE
+  MEMBER_BAN
+  MEMBER_UNBAN
+  MEMBER_EDIT
+  BALANCE_ADD
+  BALANCE_REMOVE
+  POINTS_ADD
+  POINTS_REMOVE
+  ORDER_UPDATE
+  ORDER_REFUND
+  PIX_MANUAL_CONFIRM
+  CAMPAIGN_CREATE
+  CAMPAIGN_SEND
+  MESSAGE_UPDATE
+  BUTTON_UPDATE
+  DEEPLINK_CREATE
+  DEEPLINK_UPDATE
+  SETTINGS_UPDATE
+  CHANNEL_UPDATE
+  GIFT_CREATE
+  GIFT_UPDATE
+  COUPON_CREATE
+  COUPON_UPDATE
+  MAINTENANCE_TOGGLE
+  SYSTEM_RESET
+}
+
+// ─────────────────────────────────────────────
+//  ADMINS E PERMISSÕES
+// ─────────────────────────────────────────────
+
+model Admin {
+  id              String    @id @default(cuid())
+  telegramId      String    @unique
+  name            String
   username        String?
-  primeiroNome    String?
-  sobrenome       String?
-  fotoUrl         String?
-  idioma          String?  @default("pt-br")
+  role            AdminRole @default(ADMIN)
+  isActive        Boolean   @default(true)
+  permissions     Json      @default("{}")   // { "products": ["read","write"], ... }
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  // controle
-  ativo           Boolean  @default(true)
-  banido          Boolean  @default(false)
-  banidoMotivo    String?
-  banidoAte       DateTime?
-  banidoEm        DateTime?
-
-  // afiliado
-  isAfiliado      Boolean  @default(false)
-  codigoRef       String   @unique
-  indicadoPorId   String?
-  indicadoPor     Membro?  @relation("Indicacoes", fields: [indicadoPorId], references: [id])
-  indicados       Membro[] @relation("Indicacoes")
-
-  // estado de conversa
-  estadoAtual     String?  // ex: "aguardando_valor_recarga"
-  contexto        Json?    // dados temporários do fluxo
-
-  // lembrete de produto visualizado
-  lembreteProdutoJson Json?
-
-  ultimaAtividade DateTime?
-  criadoEm        DateTime @default(now())
-  atualizadoEm    DateTime @updatedAt
-
-  carteira        Carteira?
-  transacoes      Transacao[]
-  pedidos         Pedido[]
-  carrinho        ItemCarrinho[]
-  assinaturas     Assinatura[]
-  pixCobrancas    PixCobranca[]
-  visualizacoes   VisualizacaoProduto[]
-  logsNotificacao LogNotificacao[]
-  pontosMov       PontoMovimentacao[]
+  logs            AdminLog[]
 
   @@index([telegramId])
-  @@index([isAfiliado])
-  @@index([banido])
+  @@index([role])
 }
 
-// ============================================================
-// CARTEIRA / FINANCEIRO
-// ============================================================
-
-model Carteira {
-  id          String   @id @default(cuid())
-  membroId    String   @unique
-  membro      Membro   @relation(fields: [membroId], references: [id], onDelete: Cascade)
-  saldo       Decimal  @default(0) @db.Decimal(12, 2)
-  totalPix    Decimal  @default(0) @db.Decimal(12, 2)
-  totalGasto  Decimal  @default(0) @db.Decimal(12, 2)
-  criadoEm    DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-}
-
-model Transacao {
-  id          String   @id @default(cuid())
-  membroId    String
-  membro      Membro   @relation(fields: [membroId], references: [id], onDelete: Cascade)
-  tipo        TransacaoTipo
-  valor       Decimal  @db.Decimal(12, 2)
-  saldoAntes  Decimal  @db.Decimal(12, 2)
-  saldoDepois Decimal  @db.Decimal(12, 2)
-  descricao   String?
-  referencia  String?  // pedidoId, pixId, giftId...
-  criadoEm    DateTime @default(now())
-
-  @@index([membroId])
-  @@index([tipo])
-  @@index([criadoEm])
-}
-
-enum TransacaoTipo {
-  DEPOSITO
-  BONUS
-  COMPRA
-  ESTORNO
-  PONTOS_CONVERSAO
-  AJUSTE_ADMIN
-  GIFT
-}
-
-// ============================================================
-// CATÁLOGO
-// ============================================================
-
-model Categoria {
-  id          String   @id @default(cuid())
-  nome        String
-  slug        String   @unique
-  descricao   String?
-  imagemUrl   String?
-  ordem       Int      @default(0)
-  ativo       Boolean  @default(true)
-  criadoEm    DateTime @default(now())
-
-  produtos    Produto[]
-}
-
-model Produto {
-  id              String   @id @default(cuid())
-  nome            String
-  slug            String   @unique
-  descricao       String?
-  imagemUrl       String?
-
-  categoriaId     String
-  categoria       Categoria @relation(fields: [categoriaId], references: [id])
-
-  preco           Decimal  @db.Decimal(12, 2)
-  precoPromo      Decimal? @db.Decimal(12, 2)
-  promoInicio     DateTime?
-  promoFim        DateTime?
-
-  quantidadeMin   Int      @default(1)
-  quantidadeMax   Int      @default(999)
-
-  tipoEntrega     TipoEntrega @default(CREDENCIAL)
-  linkAtivacao    String?
-  instrucoes      String?
-
-  ativo           Boolean  @default(true)
-  exibirCatalogo  Boolean  @default(true)
-  permitirIndividual Boolean @default(true)
-  permitirQuantidade Boolean @default(true)
-  permitirCarrinho   Boolean @default(true)
-  participarPromo    Boolean @default(true)
-  ativarLembrete     Boolean @default(true)
-
-  visualizacoes   Int      @default(0)
-  vendas          Int      @default(0)
-
-  criadoEm        DateTime @default(now())
-  atualizadoEm    DateTime @updatedAt
-
-  estoque         Credencial[]
-  itensPedido     ItemPedido[]
-  itensCarrinho   ItemCarrinho[]
-  visualizacoesLog VisualizacaoProduto[]
-
-  @@index([categoriaId])
-  @@index([ativo])
-}
-
-enum TipoEntrega {
-  CREDENCIAL
-  ESTOQUE_LOGINS
-  LINK
-  CODIGO
-  MANUAL
-  INSTRUCOES
-}
-
-// ============================================================
-// ESTOQUE / CREDENCIAIS
-// ============================================================
-
-model Credencial {
-  id          String   @id @default(cuid())
-  produtoId   String
-  produto     Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-
-  email       String?
-  senha       String?
-  codigo      String?
-  extras      Json?
-  validade    DateTime?
-
-  status      CredencialStatus @default(DISPONIVEL)
-  pedidoId    String?
-  entregueEm  DateTime?
-  reservadaEm DateTime?
-
-  loteId      String?
-  criadoEm    DateTime @default(now())
-
-  @@index([produtoId, status])
-}
-
-enum CredencialStatus {
-  DISPONIVEL
-  RESERVADA
-  VENDIDA
-  ENTREGUE
-  INDISPONIVEL
-}
-
-// ============================================================
-// PEDIDOS / COMPRAS
-// ============================================================
-
-model Pedido {
-  id            String   @id @default(cuid())
-  membroId      String
-  membro        Membro   @relation(fields: [membroId], references: [id])
-
-  valorTotal    Decimal  @db.Decimal(12, 2)
-  status        PedidoStatus @default(PENDENTE)
-  metodoPagamento MetodoPagamento @default(SALDO)
-
-  pixId         String?
-  pixCobranca   PixCobranca? @relation(fields: [pixId], references: [id])
-
-  entregue      Boolean  @default(false)
-  entregueEm    DateTime?
-  erroEntrega   String?
-
-  confirmadoEm  DateTime?
-  criadoEm      DateTime @default(now())
-  atualizadoEm  DateTime @updatedAt
-
-  itens         ItemPedido[]
-  credenciais   Credencial[]
-
-  @@index([membroId])
-  @@index([status])
-  @@index([criadoEm])
-}
-
-model ItemPedido {
-  id          String   @id @default(cuid())
-  pedidoId    String
-  pedido      Pedido   @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
-  produtoId   String
-  produto     Produto  @relation(fields: [produtoId], references: [id])
-  quantidade  Int
-  precoUnit   Decimal  @db.Decimal(12, 2)
-  subtotal    Decimal  @db.Decimal(12, 2)
-}
-
-enum PedidoStatus {
-  PENDENTE
-  CONFIRMADO
-  ENTREGUE
-  CANCELADO
-  FALHA_ENTREGA
-}
-
-enum MetodoPagamento {
-  SALDO
-  PIX
-}
-
-// ============================================================
-// PIX
-// ============================================================
-
-model PixCobranca {
-  id            String   @id @default(cuid())
-  membroId      String
-  membro        Membro   @relation(fields: [membroId], references: [id])
-
-  valorBase     Decimal  @db.Decimal(12, 2)
-  bonusValor    Decimal  @default(0) @db.Decimal(12, 2)
-  valorTotal    Decimal  @db.Decimal(12, 2)
-
-  qrCode        String?
-  copiaCola     String?
-  providerId    String?  @unique
-  providerRaw   Json?
-
-  status        PixStatus @default(AGUARDANDO)
-  expiraEm      DateTime
-  pagoEm        DateTime?
-
-  // quando é pra completar compra
-  pedidoVinculado Pedido?
-  tipo            PixTipo @default(RECARGA)
-
-  lembreteEnviado Boolean @default(false)
-  lembreteEm      DateTime?
-
-  criadoEm      DateTime @default(now())
-
-  @@index([membroId])
-  @@index([status])
-}
-
-enum PixStatus {
-  AGUARDANDO
-  PAGO
-  EXPIRADO
-  CANCELADO
-  FALHA
-  EM_ANALISE
-}
-
-enum PixTipo {
-  RECARGA
-  COMPRA
-}
-
-// ============================================================
-// CARRINHO
-// ============================================================
-
-model ItemCarrinho {
-  id          String   @id @default(cuid())
-  membroId    String
-  membro      Membro   @relation(fields: [membroId], references: [id], onDelete: Cascade)
-  produtoId   String
-  produto     Produto  @relation(fields: [produtoId], references: [id])
-  quantidade  Int      @default(1)
-  criadoEm    DateTime @default(now())
-
-  @@unique([membroId, produtoId])
-}
-
-// ============================================================
-// ASSINATURAS
-// ============================================================
-
-model Assinatura {
-  id            String   @id @default(cuid())
-  membroId      String
-  membro        Membro   @relation(fields: [membroId], references: [id])
-  produtoId     String
-  pedidoId      String
-
-  inicio        DateTime
-  vencimento    DateTime
-  status        AssinaturaStatus @default(ATIVA)
-  valorPago     Decimal  @db.Decimal(12, 2)
-  metodoPagamento MetodoPagamento
-
-  criadoEm      DateTime @default(now())
-
-  @@index([membroId])
-  @@index([status])
-}
-
-enum AssinaturaStatus {
-  ATIVA
-  VENCIDA
-  CANCELADA
-}
-
-// ============================================================
-// GAMIFICAÇÃO / INDICAÇÃO / PONTOS
-// ============================================================
-
-model Indicao {
-  id          String   @id @default(cuid())
-  indicadorId String
-  indicadoId  String   @unique
-  status      StatusIndicacao @default(PENDENTE)
-  pontos      Int      @default(0)
-  validadoEm  DateTime?
-  criadoEm    DateTime @default(now())
-
-  @@index([indicadorId])
-}
-
-enum StatusIndicacao {
-  PENDENTE
-  VALIDADA
-  REJEITADA
-}
-
-model PontoMovimentacao {
-  id          String   @id @default(cuid())
-  membroId    String
-  membro      Membro   @relation(fields: [membroId], references: [id])
-  quantidade  Int
-  tipo        TipoPonto
-  motivo      String?
-  referencia  String?
-  criadoEm    DateTime @default(now())
-
-  @@index([membroId])
-}
-
-enum TipoPonto {
-  GANHO
-  UTILIZADO
-  AJUSTE
-}
-
-// ============================================================
-// GIFTS / CUPONS
-// ============================================================
-
-model Gift {
-  id            String   @id @default(cuid())
-  codigo        String   @unique
-  valorReais    Decimal? @db.Decimal(12, 2)
-  valorPontos   Int?
-  limiteTotal   Int      @default(1)
-  limitePorMembro Int    @default(1)
-  valorMinCompra Decimal? @db.Decimal(12, 2)
-  expiraEm      DateTime?
-  ativo         Boolean  @default(true)
-  usos          Int      @default(0)
-  criadoEm      DateTime @default(now())
-
-  resgates      ResgateGift[]
-}
-
-model ResgateGift {
-  id        String   @id @default(cuid())
-  giftId    String
-  gift      Gift     @relation(fields: [giftId], references: [id])
-  membroId  String
-  criadoEm  DateTime @default(now())
-
-  @@unique([giftId, membroId])
-}
-
-model Cupom {
-  id            String   @id @default(cuid())
-  codigo        String   @unique
-  descontoPct   Int?
-  descontoFixo  Decimal? @db.Decimal(12, 2)
-  produtoId     String?
-  categoriaId   String?
-  usosMax       Int?
-  usos          Int      @default(0)
-  validoDe      DateTime?
-  validoAte     DateTime?
-  ativo         Boolean  @default(true)
-  criadoEm      DateTime @default(now())
-}
-
-// ============================================================
-// CAMPANHAS / NOTIFICAÇÕES
-// ============================================================
-
-model Campanha {
-  id          String   @id @default(cuid())
-  nome        String
-  mensagem    String   @db.Text
-  imagemUrl   String?
-  botoes      Json?
-  publico     Json     // filtros de segmentação
-  deepLink    String?
-  agendadaPara DateTime?
-  enviadaEm   DateTime?
-  status      CampanhaStatus @default(RASCUNHO)
-  totalAlvo   Int      @default(0)
-  totalEnviado Int     @default(0)
-  totalFalha  Int      @default(0)
-  criadoPor   String
-  criadoEm    DateTime @default(now())
-
-  destinatarios CampanhaDestinatario[]
-}
-
-enum CampanhaStatus {
-  RASCUNHO
-  AGENDADA
-  ENVIANDO
-  CONCLUIDA
-  CANCELADA
-}
-
-model CampanhaDestinatario {
-  id          String   @id @default(cuid())
-  campanhaId  String
-  campanha    Campanha @relation(fields: [campanhaId], references: [id], onDelete: Cascade)
-  membroId    String
-  enviado     Boolean  @default(false)
-  erro        String?
-  enviadoEm   DateTime?
-
-  @@unique([campanhaId, membroId])
-}
-
-model LogNotificacao {
-  id          String   @id @default(cuid())
-  membroId    String
-  membro      Membro   @relation(fields: [membroId], references: [id])
-  tipo        String
-  referencia  String?
-  enviadaEm   DateTime @default(now())
-
-  @@index([membroId, tipo])
-}
-
-// ============================================================
-// DEEP LINKS
-// ============================================================
-
-model DeepLink {
-  id          String   @id @default(cuid())
-  parametro   String   @unique
-  destino     String   // catalogo, produto, categoria, etc
-  alvoId      String?
-  campanha    String?
-  validadeEm  DateTime?
-  limiteUso   Int?
-  usos        Int      @default(0)
-  ativo       Boolean  @default(true)
-  criadoEm    DateTime @default(now())
-
-  cliques     CliqueDeepLink[]
-}
-
-model CliqueDeepLink {
-  id          String   @id @default(cuid())
-  deepLinkId  String
-  deepLink    DeepLink @relation(fields: [deepLinkId], references: [id], onDelete: Cascade)
-  membroId    String?
+model AdminLog {
+  id          String         @id @default(cuid())
+  adminId     String?
+  admin       Admin?         @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  action      AdminLogAction
+  targetType  String?        // "Product", "Member", "Order", etc.
+  targetId    String?
+  before      Json?
+  after       Json?
   ip          String?
-  criadoEm    DateTime @default(now())
-
-  @@index([deepLinkId])
-}
-
-// ============================================================
-// EDITOR DE MENSAGENS E BOTÕES
-// ============================================================
-
-model MensagemEditavel {
-  id          String   @id @default(cuid())
-  chave       String   @unique  // ex: "boas_vindas", "menu_principal"
-  categoria   String
-  conteudo    String   @db.Text
-  midiaTipo   String?  // imagem, video, documento
-  midiaUrl    String?
-  variaveis   Json?    // variáveis usadas
-  atualizadoEm DateTime @updatedAt
-
-  versoes     VersaoMensagem[]
-}
-
-model VersaoMensagem {
-  id            String   @id @default(cuid())
-  mensagemId    String
-  mensagem      MensagemEditavel @relation(fields: [mensagemId], references: [id], onDelete: Cascade)
-  conteudoAntes String   @db.Text
-  conteudoDepois String  @db.Text
-  alteradoPor   String
-  criadoEm      DateTime @default(now())
-}
-
-model BotaoEditavel {
-  id          String   @id @default(cuid())
-  chave       String   @unique  // ex: "btn_perfil", "btn_carrinho"
-  texto       String
-  emoji       String?
-  acao        String   // callback, url, deeplink, copy, etc
-  destino     String?
-  linha       Int      @default(0)
-  ordem       Int      @default(0)
-  visivel     Boolean  @default(true)
-  condicao    String?  // ex: "carrinho_vazio"
-  criadoEm    DateTime @default(now())
-  atualizadoEm DateTime @updatedAt
-}
-
-// ============================================================
-// CONFIGURAÇÕES / CANAIS
-// ============================================================
-
-model Configuracao {
-  id          String   @id @default(cuid())
-  chave       String   @unique
-  valor       String   @db.Text
-  tipo        String   @default("string")  // string, int, decimal, bool, json
-  grupo       String?
-  descricao   String?
-  atualizadoEm DateTime @updatedAt
-}
-
-model Canal {
-  id          String   @id @default(cuid())
-  tipo        String   @unique  // oficial, grupo, abastecimento, compras, suporte
-  chatId      String
-  link        String?
-  nome        String
-  ativo       Boolean  @default(true)
-  botAdmin    Boolean  @default(false)
-  webhookOk   Boolean  @default(false)
-  atualizadoEm DateTime @updatedAt
-}
-
-// ============================================================
-// VISUALIZAÇÕES / ANALYTICS
-// ============================================================
-
-model VisualizacaoProduto {
-  id          String   @id @default(cuid())
-  produtoId   String
-  produto     Produto  @relation(fields: [produtoId], references: [id], onDelete: Cascade)
-  membroId    String
-  membro      Membro   @relation(fields: [membroId], references: [id])
-  criadoEm    DateTime @default(now())
-  lembreteDisparado Boolean @default(false)
-
-  @@index([produtoId, membroId])
-  @@index([criadoEm])
-}
-
-// ============================================================
-// LOGS E AUDITORIA
-// ============================================================
-
-model LogAtividade {
-  id            String   @id @default(cuid())
-  adminId       String?
-  admin         Admin?   @relation(fields: [adminId], references: [id])
-  acao          String
-  modulo        String
-  entidadeId    String?
-  dadosAntes    Json?
-  dadosDepois   Json?
-  ip            String?
-  resultado     String?
-  criadoEm      DateTime @default(now())
+  userAgent   String?
+  createdAt   DateTime       @default(now())
 
   @@index([adminId])
-  @@index([modulo])
-  @@index([criadoEm])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+//  MEMBROS E CARTEIRAS
+// ─────────────────────────────────────────────
+
+model Member {
+  id                String       @id @default(cuid())
+  telegramId        String       @unique
+  username          String?
+  firstName         String?
+  lastName          String?
+  languageCode      String?
+  isPremium         Boolean      @default(false)
+
+  status            MemberStatus @default(ACTIVE)
+  banReason         String?
+  bannedUntil       DateTime?
+  bannedAt          DateTime?
+  bannedByAdminId   String?
+
+  isAffiliate       Boolean      @default(false)
+  affiliateSince    DateTime?
+
+  referredById      String?      // quem indicou
+  referredBy        Member?      @relation("MemberReferrals", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals         Member[]     @relation("MemberReferrals")
+  referralCode      String?      @unique  // código do próprio membro
+
+  joinedChannelAt   DateTime?
+  joinedGroupAt     DateTime?
+  hasAccess         Boolean      @default(false)
+
+  lastActivityAt    DateTime     @default(now())
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  wallet            Wallet?
+  orders            Order[]
+  cart              Cart?
+  subscriptions     Subscription[]
+  pixCharges        PixCharge[]
+  referralPoints    PointTransaction[]
+  referralRecords   Referral[]   @relation("ReferralReferrer")
+  referredRecord    Referral?    @relation("ReferralReferred")
+  productViews      ProductView[]
+  notifications     Notification[]
+  campaignRecipients CampaignRecipient[]
+  sessions          MemberSession[]
+  giftRedemptions   GiftRedemption[]
+  couponUses        CouponUse[]
+
+  @@index([telegramId])
+  @@index([status])
+  @@index([isAffiliate])
+  @@index([referredById])
+}
+
+model Wallet {
+  id         String   @id @default(cuid())
+  memberId   String   @unique
+  member     Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  balance    Decimal  @default(0) @db.Decimal(12, 2)
+  points     Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  transactions Transaction[]
+
+  @@index([memberId])
+}
+
+model Transaction {
+  id          String               @id @default(cuid())
+  walletId    String
+  wallet      Wallet               @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  type        TransactionType
+  direction   TransactionDirection
+  amount      Decimal              @db.Decimal(12, 2)
+  balanceBefore Decimal            @db.Decimal(12, 2)
+  balanceAfter  Decimal            @db.Decimal(12, 2)
+  description String?
+  reference   String?              // id do pedido, cobrança, gift, etc.
+  adminId     String?              // se foi ação manual
+  createdAt   DateTime             @default(now())
+
+  @@index([walletId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+//  SESSÃO DE NAVEGAÇÃO (estado por usuário)
+// ─────────────────────────────────────────────
+
+model MemberSession {
+  id              String   @id @default(cuid())
+  memberId        String
+  member          Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  screen          String   @default("main")
+  previousScreen  String?
+  pendingOperation String?
+  pendingData     Json?    @default("{}")
+  replyChainMessageId BigInt?
+  mainMessageId   BigInt?
+  catalogPage     Int      @default(0)
+  productId       String?
+  quantity        Int?
+  updatedAt       DateTime @updatedAt
+
+  @@unique([memberId])
+  @@index([memberId])
+}
+
+// ─────────────────────────────────────────────
+//  CATEGORIAS E PRODUTOS
+// ─────────────────────────────────────────────
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?
+  imageUrl    String?
+  position    Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  products    Product[]
+
+  @@index([isActive])
+  @@index([position])
+}
+
+model Product {
+  id                     String         @id @default(cuid())
+  name                   String
+  description            String?
+  categoryId             String?
+  category               Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  imageUrl               String?
+  price                  Decimal        @db.Decimal(12, 2)
+  promotionalPrice       Decimal?       @db.Decimal(12, 2)
+  promoStartsAt          DateTime?
+  promoEndsAt            DateTime?
+  promoMaxUnits          Int?
+  promoUnitsSold         Int            @default(0)
+
+  minQuantity            Int            @default(1)
+  maxQuantity            Int            @default(100)
+
+  deliveryType           DeliveryType   @default(CREDENTIALS)
+  activationUrl          String?
+  customInstructions     String?
+
+  status                 ProductStatus  @default(ACTIVE)
+  showInCatalog          Boolean        @default(true)
+  allowSinglePurchase    Boolean        @default(true)
+  allowQuantityPurchase  Boolean        @default(true)
+  allowAddToCart         Boolean        @default(true)
+  allowReminder          Boolean        @default(true)
+
+  viewsCount             Int            @default(0)
+  soldCount              Int            @default(0)
+
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  credentials            Credential[]
+  orderItems             OrderItem[]
+  cartItems              CartItem[]
+  views                  ProductView[]
+  subscriptions          Subscription[]
+
+  @@index([categoryId])
+  @@index([status])
+  @@index([showInCatalog])
+}
+
+model Credential {
+  id            String           @id @default(cuid())
+  productId     String
+  product       Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  email         String?
+  password      String?
+  code          String?
+  extraInfo     String?
+  expiresAt     DateTime?
+
+  status        CredentialStatus @default(AVAILABLE)
+  reservedById  String?
+  reservedAt    DateTime?
+  soldToOrderId String?
+  soldAt        DateTime?
+
+  createdAt     DateTime         @default(now())
+
+  @@index([productId, status])
+  @@index([status])
+}
+
+model ProductView {
+  id          String   @id @default(cuid())
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  viewedAt    DateTime @default(now())
+  reminded    Boolean  @default(false)
+  resolved    Boolean  @default(false)  // se comprou/adicionou ao carrinho
+
+  @@index([memberId, productId])
+  @@index([viewedAt])
+}
+
+// ─────────────────────────────────────────────
+//  CARRINHO
+// ─────────────────────────────────────────────
+
+model Cart {
+  id        String     @id @default(cuid())
+  memberId  String     @unique
+  member    Member     @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  updatedAt DateTime   @updatedAt
+  createdAt DateTime   @default(now())
+}
+
+model CartItem {
+  id          String   @id @default(cuid())
+  cartId      String
+  cart        Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity    Int      @default(1)
+  addedAt     DateTime @default(now())
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+}
+
+// ─────────────────────────────────────────────
+//  PEDIDOS E ENTREGAS
+// ─────────────────────────────────────────────
+
+model Order {
+  id             String        @id @default(cuid())
+  memberId       String
+  member         Member        @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  status         OrderStatus   @default(PENDING)
+  paymentMethod  PaymentMethod @default(BALANCE)
+
+  subtotal       Decimal       @db.Decimal(12, 2)
+  discount       Decimal       @default(0) @db.Decimal(12, 2)
+  total          Decimal       @db.Decimal(12, 2)
+  balanceUsed    Decimal       @default(0) @db.Decimal(12, 2)
+  pixUsed        Decimal       @default(0) @db.Decimal(12, 2)
+
+  pixChargeId    String?       // se pagou total/parcial com PIX
+
+  confirmedAt    DateTime?
+  deliveredAt    DateTime?
+  cancelledAt    DateTime?
+
+  items          OrderItem[]
+  deliveries     Delivery[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([memberId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  productName   String   // snapshot
+  unitPrice     Decimal  @db.Decimal(12, 2)
+  quantity      Int
+  subtotal      Decimal  @db.Decimal(12, 2)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Delivery {
+  id            String   @id @default(cuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId   String?
+  credentialId  String?  // qual credencial foi entregue
+  content       String?  // conteúdo textual (link, código, instrução)
+  deliveredAt   DateTime @default(now())
+
+  @@index([orderId])
+}
+
+// ─────────────────────────────────────────────
+//  PIX
+// ─────────────────────────────────────────────
+
+model PixCharge {
+  id             String          @id @default(cuid())
+  memberId       String
+  member         Member          @relation(fields: [memberId], references: [id], onDelete: Restrict)
+
+  purpose        PixPurpose
+  status         PixChargeStatus @default(PENDING)
+
+  baseAmount     Decimal         @db.Decimal(12, 2)  // valor enviado pelo membro
+  bonusPercent   Decimal         @default(0) @db.Decimal(5, 2)
+  bonusAmount    Decimal         @default(0) @db.Decimal(12, 2)
+  totalCredit    Decimal         @db.Decimal(12, 2)  // base + bonus
+
+  provider       String?         // gerencianet, mercadopago, etc.
+  providerChargeId String?       @unique
+  pixCopyPaste   String?
+  qrCodeImageUrl String?
+  expiresAt      DateTime
+  paidAt         DateTime?
+
+  linkedOrderId  String?         // se for PIX para completar compra/carrinho
+  linkedCartSnapshot Json?       // snapshot do carrinho no momento
+
+  webhookEvents  PixWebhookEvent[]
+
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([memberId])
+  @@index([status])
+  @@index([expiresAt])
+  @@index([providerChargeId])
+}
+
+model PixWebhookEvent {
+  id           String    @id @default(cuid())
+  pixChargeId  String?
+  pixCharge    PixCharge? @relation(fields: [pixChargeId], references: [id], onDelete: SetNull)
+  eventType    String
+  payload      Json
+  processed    Boolean   @default(false)
+  processedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([pixChargeId])
+  @@index([processed])
+}
+
+// ─────────────────────────────────────────────
+//  ASSINATURAS
+// ─────────────────────────────────────────────
+
+model Subscription {
+  id             String             @id @default(cuid())
+  memberId       String
+  member         Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  orderId        String?
+
+  status         SubscriptionStatus @default(ACTIVE)
+  startedAt      DateTime           @default(now())
+  expiresAt      DateTime
+  cancelledAt    DateTime?
+
+  amountPaid     Decimal            @db.Decimal(12, 2)
+  paymentMethod  PaymentMethod
+
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([memberId])
+  @@index([productId])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────
+//  GIFTS E CUPONS
+// ─────────────────────────────────────────────
+
+model Gift {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  type             GiftType
+  value            Decimal  @db.Decimal(12, 2)  // R$ se BALANCE, qtd se POINTS
+  maxRedemptions   Int      @default(1)
+  redemptionsCount Int      @default(0)
+  maxPerMember     Int      @default(1)
+  minPurchaseValue Decimal? @db.Decimal(12, 2)
+  expiresAt        DateTime?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  redemptions      GiftRedemption[]
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model GiftRedemption {
+  id         String   @id @default(cuid())
+  giftId     String
+  gift       Gift     @relation(fields: [giftId], references: [id], onDelete: Cascade)
+  memberId   String
+  member     Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  valueUsed  Decimal  @db.Decimal(12, 2)
+  redeemedAt DateTime @default(now())
+
+  @@unique([giftId, memberId])
+  @@index([memberId])
+}
+
+model Coupon {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  discountPercent  Decimal? @db.Decimal(5, 2)
+  discountFixed    Decimal? @db.Decimal(12, 2)
+  productId        String?
+  categoryId       String?
+  minPurchaseValue Decimal? @db.Decimal(12, 2)
+  maxUses          Int      @default(0)  // 0 = ilimitado
+  usesCount        Int      @default(0)
+  maxPerMember     Int      @default(1)
+  startsAt         DateTime?
+  expiresAt        DateTime?
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  uses             CouponUse[]
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model CouponUse {
+  id       String   @id @default(cuid())
+  couponId String
+  coupon   Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  memberId String
+  member   Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  orderId  String?
+  usedAt   DateTime @default(now())
+
+  @@index([couponId])
+  @@index([memberId])
+}
+
+// ─────────────────────────────────────────────
+//  INDICAÇÕES E PONTOS
+// ─────────────────────────────────────────────
+
+model Referral {
+  id              String         @id @default(cuid())
+  referrerId      String
+  referrer        Member         @relation("ReferralReferrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId      String         @unique
+  referred        Member         @relation("ReferralReferred", fields: [referredId], references: [id], onDelete: Cascade)
+  status          ReferralStatus @default(PENDING)
+  pointsAwarded   Int            @default(0)
+  validatedAt     DateTime?
+  rejectedAt      DateTime?
+  reason          String?
+  createdAt       DateTime       @default(now())
+
+  @@index([referrerId])
+  @@index([status])
+}
+
+model PointTransaction {
+  id         String    @id @default(cuid())
+  memberId   String
+  member     Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  type       PointType
+  amount     Int       // positivo = ganho, negativo = uso
+  description String?
+  reference  String?
+  createdAt  DateTime  @default(now())
+
+  @@index([memberId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────
+//  NOTIFICAÇÕES E LEMBRETES
+// ─────────────────────────────────────────────
+
+model Notification {
+  id           String             @id @default(cuid())
+  memberId     String
+  member       Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  type         NotificationType
+  status       NotificationStatus @default(PENDING)
+  payload      Json               @default("{}")
+  scheduledFor DateTime
+  sentAt       DateTime?
+  failedAt     DateTime?
+  errorMsg     String?
+  messageId    BigInt?
+  resolvedAt   DateTime?
+  idempotencyKey String           @unique
+
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([memberId])
+  @@index([type])
+  @@index([status, scheduledFor])
+}
+
+// ─────────────────────────────────────────────
+//  MENSAGENS E BOTÕES EDITÁVEIS
+// ─────────────────────────────────────────────
+
+model MessageTemplate {
+  id          String           @id @default(cuid())
+  key         String           @unique  // "welcome", "catalog", "insufficient_balance", etc.
+  category    String           @default("general")
+  label       String           // nome amigável para o admin
+  content     String           @db.Text
+  description String?
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  versions    MessageVersion[]
+  buttons     MessageButton[]
+
+  @@index([key])
+  @@index([category])
+}
+
+model MessageVersion {
+  id              String          @id @default(cuid())
+  messageId       String
+  message         MessageTemplate @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  previousContent String          @db.Text
+  newContent      String          @db.Text
+  adminId         String?
+  createdAt       DateTime        @default(now())
+
+  @@index([messageId])
+}
+
+model MessageButton {
+  id           String           @id @default(cuid())
+  messageId    String
+  message      MessageTemplate  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  internalId   String           // "open_catalog", "buy_product", etc.
+  label        String
+  emoji        String?
+  actionType   ButtonActionType
+  actionValue  String?          // id do produto, URL, deep link, screen name
+  position     Int              @default(0)
+  row          Int              @default(0)
+  isVisible    Boolean          @default(true)
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([messageId, internalId])
+  @@index([messageId])
+  @@index([position])
+}
+
+// ─────────────────────────────────────────────
+//  DEEP LINKS
+// ─────────────────────────────────────────────
+
+model DeepLink {
+  id            String              @id @default(cuid())
+  destination   DeepLinkDestination
+  parameter     String?             // ex: "produto_125", "categoria_08"
+  label         String              // nome amigável
+  campaignRef   String?
+  targetAudience Json               @default("{}")
+  isActive      Boolean             @default(true)
+  clicksCount   Int                 @default(0)
+  uniqueUsers   Int                 @default(0)
+  registrations Int                 @default(0)
+  purchases     Int                 @default(0)
+  revenue       Decimal             @default(0) @db.Decimal(12, 2)
+  expiresAt     DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@index([destination])
+  @@index([isActive])
+  @@index([parameter])
+}
+
+// ─────────────────────────────────────────────
+//  CANAIS E GRUPOS
+// ─────────────────────────────────────────────
+
+model ChannelConfig {
+  id          String         @id @default(cuid())
+  purpose     ChannelPurpose @unique
+  chatId      String
+  title       String?
+  inviteLink  String?
+  isVerified  Boolean        @default(false)
+  isActive    Boolean        @default(true)
+  config      Json           @default("{}")
+  updatedAt   DateTime       @updatedAt
+  createdAt   DateTime       @default(now())
+
+  @@index([purpose])
+}
+
+// ─────────────────────────────────────────────
+//  CAMPANHAS / DISPAROS
+// ─────────────────────────────────────────────
+
+model Campaign {
+  id           String         @id @default(cuid())
+  name         String
+  content      String         @db.Text
+  imageUrl     String?
+  buttons      Json           @default("[]")   // [{ label, actionType, actionValue, row, position }]
+  filters      Json           @default("{}")   // { affiliates: true, hasBalance: false, ... }
+  status       CampaignStatus @default(DRAFT)
+
+  totalTarget  Int            @default(0)
+  totalSent    Int            @default(0)
+  totalFailed  Int            @default(0)
+  totalBlocked Int            @default(0)
+
+  scheduledFor DateTime?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdByAdminId String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  recipients   CampaignRecipient[]
+
+  @@index([status])
+  @@index([scheduledFor])
+}
+
+model CampaignRecipient {
+  id           String                  @id @default(cuid())
+  campaignId   String
+  campaign     Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  memberId     String
+  member       Member                  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  status       CampaignRecipientStatus @default(PENDING)
+  sentAt       DateTime?
+  errorMsg     String?
+
+  @@unique([campaignId, memberId])
+  @@index([campaignId])
+  @@index([status])
+}
+
+// ─────────────────────────────────────────────
+//  CONFIGURAÇÕES GERAIS
+// ─────────────────────────────────────────────
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  category  String   @default("general")
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@index([category])
+}
+
+model MaintenanceConfig {
+  id          String   @id @default(cuid())
+  isActive    Boolean  @default(false)
+  message     String   @default("🛠️ A BELLAMY está em manutenção. Voltamos em breve!")
+  allowReads  Boolean  @default(true)   // permite consultas durante manutenção
+  allowedFeatures Json @default("[]")   // ex: ["profile", "purchases"]
+  startedAt   DateTime?
+  updatedAt   DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────────
+//  LEMBRETES CONFIGURÁVEIS
+// ─────────────────────────────────────────────
+
+model ReminderConfig {
+  id                 String  @id @default(cuid())
+  type               NotificationType @unique
+  isActive           Boolean @default(true)
+  timeMinutes        Int     @default(10)   // quando disparar
+  maxWindowHours     Int     @default(24)   // janela máxima
+  allowedHoursStart  Int     @default(8)
+  allowedHoursEnd    Int     @default(22)
+  messageKey         String?               // referência a MessageTemplate
+  updatedAt          DateTime @updatedAt
 }
