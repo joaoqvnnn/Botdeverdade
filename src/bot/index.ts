@@ -15,7 +15,6 @@ bot.catch((err) => {
   logger.error({ err: err.error, updateId: err.ctx.update.update_id }, 'Bot error');
 });
 
-// 1. Identifica o membro pelo telegramId
 bot.use(async (ctx, next) => {
   if (ctx.from && !ctx.from.is_bot) {
     const m = await getMemberByTelegramId(String(ctx.from.id));
@@ -26,27 +25,20 @@ bot.use(async (ctx, next) => {
   return next();
 });
 
-// 2. Admin
 bot.use(adminMiddleware);
-
-// 3. Sessão persistida
 bot.use(sessionMiddleware);
-
-// 4. Manutenção
 bot.use(maintenanceMiddleware);
-
-// 5. Guard de acesso (canal/grupo)
 bot.use(accessGuard);
 
-// Carrega comandos e eventos
 import './commands/start';
 import './commands/cancel';
 import './commands/admin';
 import './events/chatMember';
+import './callbacks/menu';
 
 bot.command('ping', (ctx) => ctx.reply('🏓 pong'));
 
 bot.on('message:text', async (ctx) => {
   if (ctx.message.text.startsWith('/')) return;
-  // M3+ gerencia fluxos aqui
+  // fluxos de reply das próximas seções
 });
